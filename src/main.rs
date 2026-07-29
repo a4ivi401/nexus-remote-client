@@ -22,12 +22,18 @@ enum Commands {
         /// Optional PIN for the session. If not provided, one will be generated.
         #[arg(short, long)]
         pin: Option<String>,
+        /// Signaling server URL
+        #[arg(short, long, default_value = "ws://127.0.0.1:3000/ws")]
+        server: String,
     },
     /// Connect to a remote desktop session
     Connect {
         /// PIN of the host to connect to
         #[arg(short, long)]
         pin: Option<String>,
+        /// Signaling server URL
+        #[arg(short, long, default_value = "ws://127.0.0.1:3000/ws")]
+        server: String,
     },
 }
 
@@ -48,11 +54,11 @@ async fn main() {
     println!();
 
     match &cli.command {
-        Some(Commands::Host { pin }) => {
-            run_host(pin.clone()).await;
+        Some(Commands::Host { pin, server }) => {
+            run_host(pin.clone(), server.clone()).await;
         }
-        Some(Commands::Connect { pin }) => {
-            run_connect(pin.clone()).await;
+        Some(Commands::Connect { pin, server }) => {
+            run_connect(pin.clone(), server.clone()).await;
         }
         None => {
             interactive_mode().await;
@@ -67,10 +73,18 @@ async fn interactive_mode() {
 
     match ans {
         Ok("Host a session (Share this PC)") => {
-            run_host(None).await;
+            let server = Text::new("Signaling Server URL:")
+                .with_default("ws://127.0.0.1:3000/ws")
+                .prompt()
+                .unwrap_or_else(|_| exit(0));
+            run_host(None, server).await;
         }
         Ok("Connect to a session (Control another PC)") => {
-            run_connect(None).await;
+            let server = Text::new("Signaling Server URL:")
+                .with_default("ws://127.0.0.1:3000/ws")
+                .prompt()
+                .unwrap_or_else(|_| exit(0));
+            run_connect(None, server).await;
         }
         _ => {
             println!("{}", "Exiting...".bright_black());
@@ -79,7 +93,7 @@ async fn interactive_mode() {
     }
 }
 
-async fn run_host(mut pin: Option<String>) {
+async fn run_host(mut pin: Option<String>, server_url: String) {
     if pin.is_none() {
         use rand::Rng;
         let random_pin: u32 = (rand::random::<u32>() % 900_000) + 100_000;
@@ -92,7 +106,7 @@ async fn run_host(mut pin: Option<String>) {
     println!("{} Waiting for viewer to connect...", "[*]".blue().bold());
     
     // Connect to Signaling Server via WebSockets
-    let sig_client = signaling::SignalingClient::connect("ws://127.0.0.1:3000/ws", pin.clone())
+    let sig_client = signaling::SignalingClient::connect(&server_url, pin.clone())
         .await
         .expect("Failed to connect to signaling server");
         
@@ -106,7 +120,7 @@ async fn run_host(mut pin: Option<String>) {
     println!("{} Shutting down...", "[*]".blue().bold());
 }
 
-async fn run_connect(mut pin: Option<String>) {
+async fn run_connect(mut pin: Option<String>, server_url: String) {
     if pin.is_none() {
         let input = Text::new("Enter the 6-digit PIN of the host:").prompt();
         match input {
@@ -119,7 +133,7 @@ async fn run_connect(mut pin: Option<String>) {
     println!("{} Connecting to host with PIN: {}...", "[*]".blue().bold(), pin.bold().yellow());
     
     // Connect to Signaling Server via WebSockets
-    let sig_client = signaling::SignalingClient::connect("ws://127.0.0.1:3000/ws", pin.clone())
+    let sig_client = signaling::SignalingClient::connect(&server_url, pin.clone())
         .await
         .expect("Failed to connect to signaling server");
         

@@ -23,7 +23,7 @@ enum Commands {
         #[arg(short, long)]
         pin: Option<String>,
         /// Signaling server URL
-        #[arg(short, long, default_value = "ws://127.0.0.1:3000/ws")]
+        #[arg(short, long, default_value = "ws://46.101.237.80:3000/ws")]
         server: String,
     },
     /// Connect to a remote desktop session
@@ -32,7 +32,7 @@ enum Commands {
         #[arg(short, long)]
         pin: Option<String>,
         /// Signaling server URL
-        #[arg(short, long, default_value = "ws://127.0.0.1:3000/ws")]
+        #[arg(short, long, default_value = "ws://46.101.237.80:3000/ws")]
         server: String,
     },
 }
@@ -74,14 +74,14 @@ async fn interactive_mode() {
     match ans {
         Ok("Host a session (Share this PC)") => {
             let server = Text::new("Signaling Server URL:")
-                .with_default("ws://127.0.0.1:3000/ws")
+                .with_default("ws://46.101.237.80:3000/ws")
                 .prompt()
                 .unwrap_or_else(|_| exit(0));
             run_host(None, server).await;
         }
         Ok("Connect to a session (Control another PC)") => {
             let server = Text::new("Signaling Server URL:")
-                .with_default("ws://127.0.0.1:3000/ws")
+                .with_default("ws://46.101.237.80:3000/ws")
                 .prompt()
                 .unwrap_or_else(|_| exit(0));
             run_connect(None, server).await;

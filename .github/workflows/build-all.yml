@@ -50,7 +50,7 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://gstreamer.freedesktop.org/data/pkg/windows/1.28.5/msvc/gstreamer-1.0-msvc-x86_64-1.28.5.exe" -OutFile "gstreamer.exe"
-          Start-Process -FilePath ".\gstreamer.exe" -ArgumentList "/S" -Wait -NoNewWindow
+          Start-Process -FilePath ".\gstreamer.exe" -ArgumentList "/quiet /norestart" -Wait -NoNewWindow
 
       - name: Build Client (Windows)
         if: runner.os == 'Windows'

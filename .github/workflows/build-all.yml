@@ -1,0 +1,109 @@
+name: Build Releases
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: nexus-remote-client-linux
+            binary_path: target/release/wot-remote-client
+          - os: windows-latest
+            artifact_name: nexus-remote-client-windows
+            binary_path: target/release/wot-remote-client.exe
+          - os: macos-13 # Intel x86_64
+            artifact_name: nexus-remote-client-macos-intel
+            binary_path: target/release/wot-remote-client
+          - os: macos-14 # Apple Silicon aarch64
+            artifact_name: nexus-remote-client-macos-arm
+            binary_path: target/release/wot-remote-client
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install pkg-config gstreamer
+
+      - name: Setup GStreamer (Windows)
+        if: runner.os == 'Windows'
+        uses: awheeler/setup-gstreamer@v1
+        with:
+          version: "1.24.1"
+          arch: "x86_64"
+          msvc: true
+
+      - name: Build Client (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release
+        env:
+          PKG_CONFIG_PATH: "C:\\gstreamer\\1.0\\msvc_x86_64\\lib\\pkgconfig"
+
+      - name: Build Client (Unix)
+        if: runner.os != 'Windows'
+        run: cargo build --release
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
+
+  package-macos:
+    name: Create macOS Universal Binary & PKG
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - name: Download Intel Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nexus-remote-client-macos-intel
+          path: macos-intel
+
+      - name: Download ARM Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nexus-remote-client-macos-arm
+          path: macos-arm
+
+      - name: Create Universal Binary
+        run: |
+          mkdir -p pkg-root/usr/local/bin
+          lipo -create -output pkg-root/usr/local/bin/nexus-remote-client \
+            macos-intel/wot-remote-client \
+            macos-arm/wot-remote-client
+          chmod +x pkg-root/usr/local/bin/nexus-remote-client
+
+      - name: Build macOS PKG
+        run: |
+          pkgbuild --identifier com.nexus.remote.client \
+                   --version "0.1.0" \
+                   --root pkg-root \
+                   --install-location "/" \
+                   nexus-remote-client-universal.pkg
+
+      - name: Upload PKG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-remote-client-macos-universal-pkg
+          path: nexus-remote-client-universal.pkg

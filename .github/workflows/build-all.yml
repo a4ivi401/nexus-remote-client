@@ -11,6 +11,7 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +36,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Cache Rust build artifacts (speeds up recompilation significantly)
+      - name: Cache Cargo Registry & Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
       # ────────────────── Linux ──────────────────
       - name: Install Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -51,10 +64,31 @@ jobs:
             gstreamer1.0-libav
 
       # ────────────────── macOS ──────────────────
+      # Homebrew on GitHub runners has most formulae pre-cached,
+      # but GStreamer may need a fresh install. We cache the Homebrew
+      # download cache to speed up subsequent runs.
+      - name: Cache Homebrew (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/downloads
+            ~/Library/Caches/Homebrew/api
+          key: ${{ runner.os }}-${{ runner.arch }}-brew-gstreamer
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-brew-
+
       - name: Install Dependencies (macOS)
         if: runner.os == 'macOS'
+        timeout-minutes: 10
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
-          brew install pkg-config gstreamer
+          brew install pkg-config gstreamer || true
+          # Verify GStreamer was installed and pkg-config can find it
+          pkg-config --modversion gstreamer-1.0
+          pkg-config --modversion gstreamer-webrtc-1.0
 
       # ────────────────── Windows ──────────────────
       # Step 1: Cache GStreamer installer (840MB — don't re-download every time)
@@ -92,11 +126,9 @@ jobs:
           # Find where GStreamer was installed
           $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
           if (-not (Test-Path $gstRoot)) {
-            # Try the default Program Files location
             $gstRoot = "$env:ProgramFiles\GStreamer\1.0\msvc_x86_64"
           }
           if (-not (Test-Path $gstRoot)) {
-            # Search for it
             $found = Get-ChildItem -Path "C:\" -Filter "gstreamer-webrtc-1.0.pc" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($found) {
               $gstRoot = $found.DirectoryName | Split-Path -Parent | Split-Path -Parent
@@ -118,10 +150,11 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.binary_path }}
 
+  # ────────────────── macOS Universal Binary + PKG ──────────────────
   package-macos:
     name: Create macOS Universal Binary & PKG
     needs: build
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Download Intel Binary
         uses: actions/download-artifact@v4
@@ -135,23 +168,51 @@ jobs:
           name: nexus-remote-client-macos-arm
           path: macos-arm
 
-      - name: Create Universal Binary
+      - name: Make binaries executable
+        run: |
+          chmod +x macos-intel/wot-remote-client
+          chmod +x macos-arm/wot-remote-client
+
+      - name: Verify architectures
+        run: |
+          echo "=== Intel binary ==="
+          file macos-intel/wot-remote-client
+          lipo -info macos-intel/wot-remote-client
+          echo ""
+          echo "=== ARM binary ==="
+          file macos-arm/wot-remote-client
+          lipo -info macos-arm/wot-remote-client
+
+      - name: Create Universal Binary with lipo
         run: |
           mkdir -p pkg-root/usr/local/bin
-          lipo -create -output pkg-root/usr/local/bin/nexus-remote-client \
+          lipo -create \
+            -output pkg-root/usr/local/bin/nexus-remote-client \
             macos-intel/wot-remote-client \
             macos-arm/wot-remote-client
           chmod +x pkg-root/usr/local/bin/nexus-remote-client
+          echo "=== Universal Binary ==="
+          file pkg-root/usr/local/bin/nexus-remote-client
+          lipo -info pkg-root/usr/local/bin/nexus-remote-client
 
-      - name: Build macOS PKG
+      - name: Build macOS PKG Installer
         run: |
-          pkgbuild --identifier com.nexus.remote.client \
-                   --version "0.1.0" \
-                   --root pkg-root \
-                   --install-location "/" \
-                   nexus-remote-client-universal.pkg
+          pkgbuild \
+            --identifier com.nexus.remote.client \
+            --version "0.1.0" \
+            --root pkg-root \
+            --install-location "/" \
+            nexus-remote-client-universal.pkg
+          echo "=== PKG created ==="
+          ls -lh nexus-remote-client-universal.pkg
 
-      - name: Upload PKG Artifact
+      - name: Upload Universal Binary (raw)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-remote-client-macos-universal
+          path: pkg-root/usr/local/bin/nexus-remote-client
+
+      - name: Upload PKG Installer
         uses: actions/upload-artifact@v4
         with:
           name: nexus-remote-client-macos-universal-pkg

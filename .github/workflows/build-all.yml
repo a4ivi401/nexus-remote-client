@@ -132,8 +132,9 @@ jobs:
         run: |
           # Install x86_64 Homebrew to /usr/local
           arch -x86_64 /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # Install x86_64 GStreamer
-          arch -x86_64 /usr/local/bin/brew install pkg-config gstreamer
+          # Install x86_64 GStreamer (|| true ignores non-critical symlink conflicts with pre-installed Python)
+          arch -x86_64 /usr/local/bin/brew install --overwrite pkg-config gstreamer || true
+          # Verify it actually installed
           echo "=== x86_64 GStreamer installed ==="
           arch -x86_64 /usr/local/bin/pkg-config --modversion gstreamer-1.0
 

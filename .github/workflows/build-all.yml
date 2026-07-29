@@ -91,54 +91,15 @@ jobs:
           pkg-config --modversion gstreamer-webrtc-1.0
 
       # ────────────────── Windows ──────────────────
-      # Step 1: Cache GStreamer installer (840MB — don't re-download every time)
-      - name: Cache GStreamer Installer (Windows)
+      # Uses the official setup-gstreamer action which downloads .msi files
+      # (not the .exe bootstrapper that hangs) and installs via msiexec /quiet.
+      # It also sets up PKG_CONFIG_PATH and PATH automatically.
+      - name: Setup GStreamer (Windows)
         if: runner.os == 'Windows'
-        id: cache-gstreamer
-        uses: actions/cache@v4
+        uses: blinemedical/setup-gstreamer@v1.4.0
         with:
-          path: gstreamer-installer
-          key: gstreamer-1.28.5-msvc-x86_64
-
-      # Step 2: Download using curl.exe (native, fast, no memory buffering)
-      - name: Download GStreamer (Windows)
-        if: runner.os == 'Windows' && steps.cache-gstreamer.outputs.cache-hit != 'true'
-        shell: cmd
-        timeout-minutes: 10
-        run: |
-          mkdir gstreamer-installer
-          curl.exe -L --retry 3 --retry-delay 5 -o gstreamer-installer\gstreamer.exe "https://gstreamer.freedesktop.org/data/pkg/windows/1.28.5/msvc/gstreamer-1.0-msvc-x86_64-1.28.5.exe"
-
-      # Step 3: Install GStreamer silently
-      - name: Install GStreamer (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        timeout-minutes: 5
-        run: |
-          start /wait gstreamer-installer\gstreamer.exe /S
-          echo GStreamer installed
-
-      # Step 4: Configure environment for cargo build
-      - name: Configure GStreamer env (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Find where GStreamer was installed
-          $gstRoot = "C:\gstreamer\1.0\msvc_x86_64"
-          if (-not (Test-Path $gstRoot)) {
-            $gstRoot = "$env:ProgramFiles\GStreamer\1.0\msvc_x86_64"
-          }
-          if (-not (Test-Path $gstRoot)) {
-            $found = Get-ChildItem -Path "C:\" -Filter "gstreamer-webrtc-1.0.pc" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) {
-              $gstRoot = $found.DirectoryName | Split-Path -Parent | Split-Path -Parent
-            }
-          }
-          Write-Host "GStreamer root: $gstRoot"
-          $pkgConfigPath = "$gstRoot\lib\pkgconfig"
-          Write-Host "PKG_CONFIG_PATH: $pkgConfigPath"
-          echo "PKG_CONFIG_PATH=$pkgConfigPath" >> $env:GITHUB_ENV
-          echo "$gstRoot\bin" >> $env:GITHUB_PATH
+          version: '1.26.11'
+          arch: 'x86_64'
 
       # ────────────────── Build ──────────────────
       - name: Build Client

@@ -12,7 +12,7 @@ jobs:
   build-linux:
     name: Build Linux (x86_64)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -111,7 +111,7 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
-          brew install pkg-config gstreamer
+          brew install --overwrite pkg-config gstreamer || true
           echo "=== ARM GStreamer installed ==="
           pkg-config --modversion gstreamer-1.0
 

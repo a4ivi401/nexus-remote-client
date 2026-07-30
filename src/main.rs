@@ -111,7 +111,7 @@ async fn run_host(mut pin: Option<String>, server_url: String) {
         }
         Err(e) => {
             eprintln!("{} Failed to connect to signaling server: {}", "[-]".red().bold(), e);
-            eprintln!("{} Make sure the server is running at {}", "[-]".red().bold(), server_url);
+            eprintln!("{} Make sure the server is running and reachable", "[-]".red().bold());
             wait_for_enter();
             return;
         }
@@ -160,7 +160,7 @@ async fn run_connect(mut pin: Option<String>, server_url: String) {
         }
         Err(e) => {
             eprintln!("{} Failed to connect to signaling server: {}", "[-]".red().bold(), e);
-            eprintln!("{} Make sure the server is running at {}", "[-]".red().bold(), server_url);
+            eprintln!("{} Make sure the server is running and reachable", "[-]".red().bold());
             wait_for_enter();
             return;
         }

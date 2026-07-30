@@ -187,7 +187,7 @@ Write-Host "Generated WiX source with $(($binDlls.Count + $plugins.Count)) files
 
 # ── 4. Build MSI ──
 Write-Host "Installing WiX toolset..."
-dotnet tool install --global wix
+dotnet tool install --global wix --version 5.0.2
 
 Write-Host "Building MSI..."
 wix build -o $OutputMsi $wxsPath -arch x64

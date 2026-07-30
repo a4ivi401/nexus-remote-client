@@ -78,11 +78,21 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Build MSI Installer
+        shell: pwsh
+        run: .\scripts\build-msi.ps1
+
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: nexus-remote-client-windows
           path: target/release/wot-remote-client.exe
+
+      - name: Upload MSI Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-remote-client-windows-installer
+          path: nexus-remote-client-windows-x86_64.msi
 
   # ────────────────── macOS (both architectures on one runner) ──────────────────
   build-macos:
@@ -210,15 +220,17 @@ jobs:
           # Linux
           chmod +x nexus-remote-client-linux/wot-remote-client
           tar czf nexus-remote-client-linux-x86_64.tar.gz -C nexus-remote-client-linux wot-remote-client
-          # Windows
+          # Windows (raw exe)
           zip -j nexus-remote-client-windows-x86_64.zip nexus-remote-client-windows/wot-remote-client.exe
+          # Windows MSI installer
+          cp nexus-remote-client-windows-installer/nexus-remote-client-windows-x86_64.msi .
           # macOS Universal Binary
           chmod +x nexus-remote-client-macos-universal/wot-remote-client-universal
           tar czf nexus-remote-client-macos-universal.tar.gz -C nexus-remote-client-macos-universal wot-remote-client-universal
           # macOS PKG
           cp nexus-remote-client-macos-universal-pkg/nexus-remote-client-universal.pkg .
           echo "=== Release assets ==="
-          ls -lh *.tar.gz *.zip *.pkg
+          ls -lh *.tar.gz *.zip *.pkg *.msi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -227,5 +239,6 @@ jobs:
           files: |
             artifacts/nexus-remote-client-linux-x86_64.tar.gz
             artifacts/nexus-remote-client-windows-x86_64.zip
+            artifacts/nexus-remote-client-windows-x86_64.msi
             artifacts/nexus-remote-client-macos-universal.tar.gz
             artifacts/nexus-remote-client-universal.pkg

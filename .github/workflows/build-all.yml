@@ -13,7 +13,7 @@ jobs:
   build-linux:
     name: Build Linux (x86_64)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -28,10 +28,11 @@ jobs:
           key: linux-x86_64-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: linux-x86_64-cargo-
 
-      - name: Install GStreamer
+      - name: Install GStreamer & Build Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            pkg-config \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             libgstreamer-plugins-bad1.0-dev \
@@ -39,16 +40,47 @@ jobs:
             gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav
+            gstreamer1.0-nice \
+            gstreamer1.0-libav \
+            gstreamer1.0-tools
 
-      - name: Build
+      - name: Run Tests
+        run: cargo test
+
+      - name: Build Release Binary
         run: cargo build --release
 
-      - name: Upload Binary
+      - name: Package Tarball & DEB
+        run: |
+          mkdir -p dist
+          # 1. Standalone Tarball
+          tar -czvf dist/nexus-remote-client-linux-x86_64.tar.gz -C target/release nexus-remote-client
+
+          # 2. Debian (.deb) Package
+          PKG_DIR="deb-staging"
+          mkdir -p "$PKG_DIR/DEBIAN"
+          mkdir -p "$PKG_DIR/usr/bin"
+          cp target/release/nexus-remote-client "$PKG_DIR/usr/bin/"
+          chmod +x "$PKG_DIR/usr/bin/nexus-remote-client"
+
+          cat <<EOF > "$PKG_DIR/DEBIAN/control"
+          Package: nexus-remote-client
+          Version: 0.2.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, gstreamer1.0-nice
+          Maintainer: Nexus Team <info@nexusremote.io>
+          Description: Ultra-Low Latency Cross-Platform Remote Desktop Client
+          EOF
+
+          dpkg-deb --build "$PKG_DIR" dist/nexus-remote-client_0.2.0_amd64.deb
+
+      - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-remote-client-linux
-          path: target/release/wot-remote-client
+          name: nexus-remote-client-linux-x86_64
+          path: dist/*
 
   # ────────────────── Windows ──────────────────
   build-windows:
@@ -75,36 +107,42 @@ jobs:
           version: '1.26.11'
           arch: 'x86_64'
 
-      - name: Build
+      - name: Run Tests
+        run: cargo test
+
+      - name: Build Release Binary
         run: cargo build --release
 
-      - name: Build MSI Installer
+      - name: Build MSI & Portable ZIP Package
         shell: pwsh
-        run: .\scripts\build-msi.ps1
+        run: .\scripts\build-msi.ps1 -BinaryPath "target\release\nexus-remote-client.exe"
 
-      - name: Upload Binary
+      - name: Upload Windows MSI Installer
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-remote-client-windows
-          path: target/release/wot-remote-client.exe
-
-      - name: Upload MSI Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: nexus-remote-client-windows-installer
+          name: nexus-remote-client-windows-msi
           path: nexus-remote-client-windows-x86_64.msi
 
-  # ────────────────── macOS (both architectures on one runner) ──────────────────
+      - name: Upload Windows Portable Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-remote-client-windows-portable
+          path: nexus-remote-client-windows-portable-x86_64.zip
+
+      - name: Upload Windows Raw Exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-remote-client-windows-exe
+          path: target/release/nexus-remote-client.exe
+
+  # ────────────────── macOS ──────────────────
   build-macos:
-    name: Build macOS (Universal Binary)
-    runs-on: macos-14  # Apple Silicon — fast, always available
+    name: Build macOS (ARM64 & x86_64)
+    runs-on: macos-14
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Add x86_64 Rust target
-        run: rustup target add x86_64-apple-darwin
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -113,92 +151,44 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-universal-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: macos-universal-cargo-
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-cargo-
 
-      # Install ARM GStreamer (native)
-      - name: Install GStreamer (ARM native)
+      - name: Install GStreamer
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
-          brew install --overwrite pkg-config gstreamer || true
-          echo "=== ARM GStreamer installed ==="
-          pkg-config --modversion gstreamer-1.0
+          brew install pkg-config gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
 
-      # Build ARM binary (native, fast)
-      - name: Build ARM binary
+      - name: Run Tests
+        run: cargo test
+
+      - name: Build Release Binary
+        run: cargo build --release
+
+      - name: Package macOS Tarball & PKG
         run: |
-          cargo build --release
-          echo "=== ARM binary ==="
-          file target/release/wot-remote-client
-          lipo -info target/release/wot-remote-client
+          mkdir -p dist
+          # Tarball
+          tar -czvf dist/nexus-remote-client-macos-arm64.tar.gz -C target/release nexus-remote-client
 
-      # Install Rosetta 2 for x86_64 emulation
-      - name: Install Rosetta 2
-        run: softwareupdate --install-rosetta --agree-to-license || true
-
-      # Install x86_64 Homebrew + GStreamer under Rosetta
-      - name: Install x86_64 GStreamer (via Rosetta)
-        run: |
-          # Install x86_64 Homebrew to /usr/local
-          arch -x86_64 /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          # Install x86_64 GStreamer (|| true ignores non-critical symlink conflicts with pre-installed Python)
-          arch -x86_64 /usr/local/bin/brew install --overwrite pkg-config gstreamer || true
-          # Verify it actually installed
-          echo "=== x86_64 GStreamer installed ==="
-          arch -x86_64 /usr/local/bin/pkg-config --modversion gstreamer-1.0
-
-      # Build x86_64 binary (cross-compile via Rosetta libs)
-      - name: Build x86_64 binary
-        env:
-          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
-          PKG_CONFIG_SYSROOT_DIR: ""
-          CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: "clang"
-          CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS: "-C link-arg=-arch -C link-arg=x86_64 -L /usr/local/lib"
-        run: |
-          cargo build --release --target x86_64-apple-darwin
-          echo "=== x86_64 binary ==="
-          file target/x86_64-apple-darwin/release/wot-remote-client
-          lipo -info target/x86_64-apple-darwin/release/wot-remote-client
-
-      # Create Universal Binary
-      - name: Create Universal Binary
-        run: |
-          lipo -create \
-            -output wot-remote-client-universal \
-            target/release/wot-remote-client \
-            target/x86_64-apple-darwin/release/wot-remote-client
-          chmod +x wot-remote-client-universal
-          echo "=== Universal Binary ==="
-          file wot-remote-client-universal
-          lipo -info wot-remote-client-universal
-
-      # Build .pkg installer
-      - name: Build macOS PKG
-        run: |
+          # Build .pkg installer
           mkdir -p pkg-root/usr/local/bin
-          cp wot-remote-client-universal pkg-root/usr/local/bin/nexus-remote-client
+          cp target/release/nexus-remote-client pkg-root/usr/local/bin/nexus-remote-client
           chmod +x pkg-root/usr/local/bin/nexus-remote-client
           pkgbuild \
             --identifier com.nexus.remote.client \
-            --version "0.1.0" \
+            --version "0.2.0" \
             --root pkg-root \
             --install-location "/" \
-            nexus-remote-client-universal.pkg
-          ls -lh nexus-remote-client-universal.pkg
+            dist/nexus-remote-client-macos-arm64.pkg
 
-      - name: Upload Universal Binary
+      - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-remote-client-macos-universal
-          path: wot-remote-client-universal
-
-      - name: Upload PKG Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: nexus-remote-client-macos-universal-pkg
-          path: nexus-remote-client-universal.pkg
+          name: nexus-remote-client-macos
+          path: dist/*
 
   # ────────────────── GitHub Release ──────────────────
   release:
@@ -214,31 +204,17 @@ jobs:
         with:
           path: artifacts
 
-      - name: Prepare release assets
+      - name: Collect Release Assets
         run: |
-          cd artifacts
-          # Linux
-          chmod +x nexus-remote-client-linux/wot-remote-client
-          tar czf nexus-remote-client-linux-x86_64.tar.gz -C nexus-remote-client-linux wot-remote-client
-          # Windows (raw exe)
-          zip -j nexus-remote-client-windows-x86_64.zip nexus-remote-client-windows/wot-remote-client.exe
-          # Windows MSI installer
-          cp nexus-remote-client-windows-installer/nexus-remote-client-windows-x86_64.msi .
-          # macOS Universal Binary
-          chmod +x nexus-remote-client-macos-universal/wot-remote-client-universal
-          tar czf nexus-remote-client-macos-universal.tar.gz -C nexus-remote-client-macos-universal wot-remote-client-universal
-          # macOS PKG
-          cp nexus-remote-client-macos-universal-pkg/nexus-remote-client-universal.pkg .
-          echo "=== Release assets ==="
-          ls -lh *.tar.gz *.zip *.pkg *.msi
+          mkdir -p release-assets
+          find artifacts -type f -name "*.tar.gz" -o -name "*.zip" -o -name "*.msi" -o -name "*.deb" -o -name "*.pkg" | while read -r file; do
+            cp "$file" release-assets/
+          done
+          echo "=== Collected release assets ==="
+          ls -lh release-assets/
 
-      - name: Create Release
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            artifacts/nexus-remote-client-linux-x86_64.tar.gz
-            artifacts/nexus-remote-client-windows-x86_64.zip
-            artifacts/nexus-remote-client-windows-x86_64.msi
-            artifacts/nexus-remote-client-macos-universal.tar.gz
-            artifacts/nexus-remote-client-universal.pkg
+          files: release-assets/*

@@ -1,10 +1,11 @@
-# Build MSI installer for Nexus Remote Client
-# Collects binary + GStreamer DLLs and creates an MSI using WiX v4
+# Build MSI installer and Portable Package for Nexus Remote Client
+# Collects binary + GStreamer DLLs and creates an MSI using WiX v4 + a portable ZIP
 
 param(
-    [string]$BinaryPath = "target\release\wot-remote-client.exe",
+    [string]$BinaryPath = "target\release\nexus-remote-client.exe",
     [string]$OutputMsi = "nexus-remote-client-windows-x86_64.msi",
-    [string]$Version = "0.1.0"
+    [string]$OutputZip = "nexus-remote-client-windows-portable-x86_64.zip",
+    [string]$Version = "0.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,8 +23,11 @@ foreach ($p in @(
         break
     }
 }
-if (-not $gstRoot) { Write-Error "GStreamer not found!"; exit 1 }
-Write-Host "GStreamer: $gstRoot"
+if (-not $gstRoot) {
+    Write-Error "GStreamer installation directory not found! Please check GSTREAMER_1_0_ROOT_MSVC_X86_64."
+    exit 1
+}
+Write-Host "Found GStreamer at: $gstRoot"
 
 # ── 2. Create staging directory ──
 $stage = "msi-staging"
@@ -31,51 +35,58 @@ Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path "$stage" -Force | Out-Null
 New-Item -ItemType Directory -Path "$stage\plugins" -Force | Out-Null
 
+if (-not (Test-Path $BinaryPath)) {
+    Write-Error "Binary not found at: $BinaryPath"
+    exit 1
+}
+
 # Copy binary
-Copy-Item $BinaryPath "$stage\nexus-remote-client.exe"
+Copy-Item $BinaryPath "$stage\nexus-remote-client.exe" -Force
 
 # Copy ALL GStreamer DLLs into same directory as the exe (required for DLL resolution)
 Copy-Item "$gstRoot\bin\*.dll" "$stage\" -Force
 $dllCount = (Get-ChildItem "$stage\*.dll").Count
-Write-Host "Copied $dllCount DLLs"
+Write-Host "Copied $dllCount runtime DLLs into staging"
 
 # Copy GStreamer plugins
-Copy-Item "$gstRoot\lib\gstreamer-1.0\*.dll" "$stage\plugins\" -Force
-$pluginCount = (Get-ChildItem "$stage\plugins\*.dll").Count
-Write-Host "Copied $pluginCount plugins"
+if (Test-Path "$gstRoot\lib\gstreamer-1.0") {
+    Copy-Item "$gstRoot\lib\gstreamer-1.0\*.dll" "$stage\plugins\" -Force
+    $pluginCount = (Get-ChildItem "$stage\plugins\*.dll").Count
+    Write-Host "Copied $pluginCount GStreamer plugins into staging\plugins"
+} else {
+    Write-Warning "No plugins directory found at $gstRoot\lib\gstreamer-1.0"
+}
 
-# ── 3. Install WiX v4 ──
-Write-Host "Installing WiX v4..."
-dotnet tool install --global wix --version 4.0.5
-wix extension add WixToolset.UI.wixext/4.0.5 -g
+# ── 3. Create Portable ZIP Bundle ──
+Write-Host "Creating portable ZIP archive..."
+Compress-Archive -Path "$stage\*" -DestinationPath $OutputZip -Force
+Write-Host "Created portable ZIP: $OutputZip"
 
-# ── 4. Generate WiX source ──
+# ── 4. Install WiX v4 tool ──
+Write-Host "Installing WiX toolset..."
+dotnet tool install --global wix --version 4.0.5 2>$null || true
+wix extension add WixToolset.UI.wixext/4.0.5 -g 2>$null || true
 
-# Helper: create a safe WiX identifier from a filename
+# ── 5. Generate WiX source ──
 function SafeId($prefix, $name) {
     $safe = ($name -replace '[^a-zA-Z0-9]', '_')
-    # WiX IDs must start with a letter
     return "${prefix}_${safe}"
 }
 
 # Build component XML for all DLLs in the main directory
 $mainFiles = Get-ChildItem "$stage\*.dll"
 $mainComponents = ""
-$mainRefs = ""
 foreach ($f in $mainFiles) {
     $id = SafeId "D" $f.Name
     $mainComponents += "        <Component Id=`"$id`" Guid=`"*`"><File Source=`"$stage\$($f.Name)`" /></Component>`n"
-    $mainRefs += "      <ComponentRef Id=`"$id`" />`n"
 }
 
 # Build component XML for all plugins
 $pluginFiles = Get-ChildItem "$stage\plugins\*.dll"
 $pluginComponents = ""
-$pluginRefs = ""
 foreach ($f in $pluginFiles) {
     $id = SafeId "P" $f.Name
     $pluginComponents += "        <Component Id=`"$id`" Guid=`"*`"><File Source=`"$stage\plugins\$($f.Name)`" /></Component>`n"
-    $pluginRefs += "      <ComponentRef Id=`"$id`" />`n"
 }
 
 $wxs = @"
@@ -93,7 +104,6 @@ $wxs = @"
     <MajorUpgrade DowngradeErrorMessage="A newer version of Nexus Remote Client is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <!-- Standard install UI -->
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
 
@@ -128,21 +138,20 @@ $pluginComponents
 </Wix>
 "@
 
-# Write WiX source
 $wxs | Out-File -FilePath "nexus-remote.wxs" -Encoding UTF8
-Write-Host "Generated WiX source ($($mainFiles.Count + $pluginFiles.Count) files)"
+Write-Host "Generated WiX source ($($mainFiles.Count + $pluginFiles.Count) bundled dependencies)"
 
-# Create a minimal license RTF (required by WixUI_InstallDir)
-$license = "{\rtf1\ansi Nexus Remote Client\par Free to use.\par }"
+# Minimal RTF license
+$license = "{\rtf1\ansi Nexus Remote Client\par Open-source ultra-low latency remote desktop software.\par }"
 $license | Out-File -FilePath "license.rtf" -Encoding ASCII
 
-# ── 5. Build MSI ──
-Write-Host "Building MSI..."
+# ── 6. Build MSI ──
+Write-Host "Compiling MSI installer..."
 wix build -o $OutputMsi nexus-remote.wxs -ext WixToolset.UI.wixext -arch x64
 
 if (Test-Path $OutputMsi) {
     $size = [math]::Round((Get-Item $OutputMsi).Length / 1MB, 1)
-    Write-Host "SUCCESS: $OutputMsi ($size MB)" -ForegroundColor Green
+    Write-Host "SUCCESS: Built MSI installer $OutputMsi ($size MB)" -ForegroundColor Green
 } else {
     Write-Error "Failed to create MSI"
     exit 1

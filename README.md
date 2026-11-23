@@ -1,13 +1,14 @@
 <div align="center">
 
-# ✨ Nexus Remote Client
+# 🚀 Nexus Remote Client
 
-**Ultra-low latency, cross-platform remote desktop CLI with GStreamer and WebRTC**
+**Ultra-low latency, cross-platform open-source remote desktop client built with Rust, GStreamer, and WebRTC**
 
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-2021-orange?style=flat-square)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-2024-orange?style=flat-square)](https://www.rust-lang.org/)
+[![Build Releases](https://github.com/a4ivi4/nexus-remote-client/actions/workflows/build-all.yml/badge.svg)](https://github.com/a4ivi4/nexus-remote-client/actions/workflows/build-all.yml)
 
-**P2P · H.264 · End-to-End Encryption · Zero-latency**
+**P2P WebRTC · H.264 Hardware-Accelerated Video · End-to-End Encryption · Zero-Latency**
 
 </div>
 
@@ -15,76 +16,93 @@
 
 ## 📋 Обзор
 
-**Nexus Remote Client** — это CLI-инструмент для удалённого рабочего стола с минимальной задержкой. Создан специально для задач, требующих мгновенного отклика (например, разработка модпаков для игр, где важен низкий пинг). Использует WebRTC (P2P) и аппаратное ускорение GStreamer.
+**Nexus Remote Client** — это быстрый, открытый и кроссплатформенный аналог AnyDesk и TeamViewer. Приложение спроектировано для удалённого управления с ультранизкой задержкой (zero-latency) через прямой WebRTC P2P-канал с кодированием H.264.
 
 | Особенность | Описание |
 |-------------|----------|
-| **CLI Интерфейс** | Красивое интерактивное меню в консоли (Inquire) |
-| **GStreamer WebRTC** | H.264 с параметром `tune=zerolatency` |
-| **P2P NAT Traversal** | Подключение напрямую даже за роутерами (ICE) |
-| **E2E Шифрование** | Пароли и метаданные шифруются ChaCha20-Poly1305 |
+| **Signaling Protocol v2** | Автоматическая генерация 6-значных Session ID, авторизация подключений |
+| **GStreamer WebRTC** | Аппаратный захват экрана (`dxgiscreencapsrc`, `avfvideosrc`, `ximagesrc`) и low-latency H.264 кодек |
+| **P2P NAT Traversal** | Автоматический STUN / TURN fallback |
+| **Кроссплатформенность** | Готовые сборки для Windows (MSI + Portable ZIP), Linux (.deb + Tarball) и macOS (.pkg + Tarball) |
+| **E2E Шифрование** | ChaCha20-Poly1305 и SHA-256 |
 
-## 🏗️ Архитектура
+---
 
-Структура клиентского приложения:
+## ⚙️ Настройка адреса сигнального сервера
 
-```
-nexus-remote-client/
-├── src/
-│   ├── main.rs         # CLI меню, логика Host/Connect
-│   ├── crypto.rs       # SHA-256 генерация ключей и ChaCha20 шифрование
-│   ├── signaling.rs    # WebSocket клиент для обмена паролями
-│   └── webrtc.rs       # GStreamer пайплайны (захват экрана, кодирование, WebRTC)
-```
+Клиент поддерживает несколько способов задания адреса сигнального сервера с чётким приоритетом:
 
-### Стек технологий
+1. **CLI аргумент `--server` / `-s`**:
+   ```bash
+   nexus-remote-client --server ws://46.101.237.80:3000/ws
+   nexus-remote-client host -s ws://46.101.237.80:3000/ws
+   nexus-remote-client connect 849201 -s ws://46.101.237.80:3000/ws
+   ```
+2. **Переменная окружения `NEXUS_SERVER`**:
+   ```bash
+   export NEXUS_SERVER="ws://46.101.237.80:3000/ws"
+   nexus-remote-client
+   ```
+3. **Конфигурационный файл (`config.json`)**:
+   Настройки сохраняются автоматически в каталог данных ОС:
+   - **Linux**: `~/.config/nexus-remote/config.json`
+   - **Windows**: `%APPDATA%\NexusRemote\config.json`
+   - **macOS**: `~/Library/Application Support/NexusRemote/config.json`
+4. **Интерактивное CLI / TUI Меню**:
+   При запуске `nexus-remote-client` без параметров выберите пункт `⚙️ Settings` для смены и сохранения адреса сервера.
 
-| Компонент | Библиотека |
-|-----------|-----------|
-| CLI Меню | [clap](https://docs.rs/clap/), [inquire](https://docs.rs/inquire/) |
-| Видео пайплайн | [gstreamer](https://docs.rs/gstreamer/), [gstreamer-webrtc](https://docs.rs/gstreamer-webrtc/) |
-| WebSocket Signaling | [tokio-tungstenite](https://docs.rs/tokio-tungstenite/) |
-| Шифрование | [chacha20poly1305](https://docs.rs/chacha20poly1305/), [sha2](https://docs.rs/sha2/) |
-| Асинхронность | [tokio](https://tokio.rs/) |
+---
 
-## 🚀 Быстрый старт
+## 🚀 Использование
 
-### Требования
-
-- **Rust** ≥ 1.70 (edition 2021)
-- **GStreamer** (включая плагины base, good, bad, ugly)
-  - *macOS*: `brew install pkg-config gstreamer`
-  - *Linux*: `sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav`
-  - *Windows*: Установить GStreamer MSVC (будет упаковано в инсталлятор)
-
-### Сборка
-
+### 1. Интерактивный режим (TUI)
 ```bash
+nexus-remote-client
+```
+
+### 2. Режим Хоста (Раздача экрана)
+```bash
+# Обычный запуск хоста (при входящем подключении спросит подтверждение)
+nexus-remote-client host
+
+# Автоматический приём всех входящих запросов
+nexus-remote-client host --auto-accept
+```
+
+### 3. Режим Клиента (Подключение к хосту)
+```bash
+# Подключение по 6-значному Session ID
+nexus-remote-client connect 849201
+```
+
+---
+
+## 📦 Сборка и Упаковка
+
+### Локальная сборка
+```bash
+# Клонирование репозитория
 git clone https://github.com/a4ivi4/nexus-remote-client.git
 cd nexus-remote-client
+
+# Запуск тестов
+cargo test
+
+# Релизная компиляция
 cargo build --release
 ```
 
-### Запуск
+### Windows Installer (WiX MSI & Portable ZIP)
+Скрипт `scripts/build-msi.ps1` собирает:
+1. Автономный **Portable ZIP** (включает бинарник `nexus-remote-client.exe`, все DLL GStreamer и плагины).
+2. Полноценный **WiX v4 MSI инсталлятор** с системной регистрацией переменных окружения.
 
-Вы можете запустить приложение как в интерактивном режиме (без аргументов), так и передав аргументы напрямую.
-
-```bash
-# Интерактивное красивое CLI меню
-cargo run --release
-
-# Запуск в режиме Host (создаст случайный PIN-код или можно задать свой)
-cargo run --release -- host --pin 123456
-
-# Подключение к хосту (Viewer)
-cargo run --release -- connect --pin 123456
+```powershell
+pwsh .\scripts\build-msi.ps1
 ```
 
-## 🔒 Безопасность
-
-- **E2EE (ChaCha20-Poly1305)** — Сигналинг сервер никогда не видит ваши IP адреса и WebRTC SDP-пакеты.
-- **SHA-256** — При вводе PIN-кода на обеих станциях, из него локально генерируется 256-битный ключ.
+---
 
 ## 📄 Лицензия
 
-MIT © [a4ivi4](https://github.com/a4ivi4)
+MIT © [Nexus Remote Team](https://github.com/a4ivi4)
